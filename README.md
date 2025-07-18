@@ -18,11 +18,10 @@
    - If you see a warning about WSL (Windows Subsystem for Linux), follow the instructions to install it for backend (Rust STT/TTS) support.
 
 6. To start the UI:
+   Run the start script:
    ```
-   cd delayed-streams-ui
-   tts-venv\Scripts\activate
-   python run.py
-   ```
+   start-ui.bat
+   ```  
    Then open [http://localhost:5000](http://localhost:5000) in your browser.
 
 **Notes:**
