@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delayed Streams Unofficial UI</title>
+    <!-- Add favicon to prevent 404 error -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎤</text></svg>">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}?v=1234">
+    <!-- Updated Socket.IO CDN URL -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.v2.js') }}?v=20250706" defer></script>
+</head>
+<body>
+    <div class="container">
+        <h2 class="main-title">Delayed Streams Unofficial UI</h2>
+        <!-- TTS/STT Switcher -->
+        <div class="form-group">
+            <label class="mode-label">Choose Mode:</label>
+            <div class="mode-switcher">
+                <button id="switchTTS" class="mode-btn active" type="button"><span class="icon">📝</span>Text to Speech</button>
+                <button id="switchSTT" class="mode-btn" type="button"><span class="icon">🎤</span>Speech to Text</button>
+            </div>
+            <div class="mode-info" id="modeInfo">
+                <span id="ttsHelp"><strong>Text to Speech:</strong> Convert written text into spoken audio.</span>
+                <span id="sttHelp" style="display:none;"><strong>Speech to Text:</strong> Transcribe spoken audio into written text.</span>
+            </div>
+        </div>
+
+        <!-- TTS Form (default visible) -->
+        <form id="ttsForm">
+            <div class="form-group">
+                <label>Choose TTS Backend:</label>
+                <div class="backend-selector">
+                    <div class="backend-option selected" onclick="selectBackend('pytorch')">
+                        <input type="radio" name="backend" value="pytorch" id="pytorch" checked>
+                        <label for="pytorch"><span class="backend-label">🐍 PyTorch</span></label>
+                    </div>
+                    <div class="backend-option" onclick="selectBackend('rust')">
+                        <input type="radio" name="backend" value="rust" id="rust">
+                        <label for="rust"><span class="backend-label">🦀 Rust Server</span></label>
+                    </div>
+                </div>
+                <div class="backend-info" id="backendInfo">
+                    <strong>PyTorch Backend:</strong> Direct PyTorch implementation, no server required. Generally faster startup and more reliable.
+                </div>
+                <div id="rustServerStatusRow" style="display:none; margin-top:10px; align-items:center; gap:10px;">
+                    <span id="rustServerStatus" class="rust-server-status">
+                        Server status: <span id="rustServerStatusText">Unknown</span>
+                        <span id="rustServerSpinner" style="display:none; vertical-align:middle; margin-left:8px;">
+                            <svg width="18" height="18" viewBox="0 0 50 50">
+                                <circle cx="25" cy="25" r="20" fill="none" stroke="#667eea" stroke-width="5" stroke-linecap="round" stroke-dasharray="31.4 94.2" stroke-dashoffset="0">
+                                    <animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1s" repeatCount="indefinite"/>
+                                </circle>
+                            </svg>
+                        </span>
+                    </span>
+                    <button type="button" id="rustServerControlBtn" class="rust-server-btn">Start Rust Server</button>
+                </div>
+                <div id="rustServerLogBox" style="display:none; margin-top:12px;">
+                    <div style="font-weight:600; font-size:14px; color:#555; margin-bottom:4px;">Server Debug Log</div>
+                    <div id="rustServerLogDiv" class="startup-log-box"></div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="voiceSelect">Choose voice:</label>
+                <select id="voiceSelect" required>
+                    <option value="">Loading voices...</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="textInput">Enter your text:</label>
+                <textarea 
+                    id="textInput" 
+                    placeholder="Type or paste your text here..."
+                    maxlength="5000"
+                    required
+                ></textarea>
+                <div class="char-count">
+                    <span id="charCount">0</span> / 5000 characters
+                </div>
+            </div>
+            <button type="submit" class="generate-btn" id="generateBtn">
+                Generate Speech
+            </button>
+        </form>
+
+        <!-- STT Form (hidden by default) -->
+        <form id="sttForm" style="display: none;">
+            <div class="form-group">
+                <label>Choose STT Backend:</label>
+                <div class="backend-selector">
+                    <div class="backend-option selected" onclick="selectSTTBackend('pytorch')">
+                        <input type="radio" name="stt-backend" value="pytorch" id="stt-pytorch" checked>
+                        <label for="stt-pytorch"><span class="backend-label">🐍 PyTorch</span></label>
+                    </div>
+                    <div class="backend-option" onclick="selectSTTBackend('rust')">
+                        <input type="radio" name="stt-backend" value="rust" id="stt-rust">
+                        <label for="stt-rust"><span class="backend-label">🦀 Rust Server</span></label>
+                    </div>
+                </div>
+                <div class="backend-info" id="sttBackendInfo">
+                    <strong>PyTorch Backend:</strong> Direct PyTorch implementation, no server required. Generally for research and one-off transcriptions.
+                </div>
+                <div id="sttServerStatusRow" style="display:none; margin-top:10px; align-items:center; gap:10px;">
+                    <span id="sttServerStatus" class="rust-server-status">
+                        STT Server status: <span id="sttServerStatusText">Unknown</span>
+                        <span id="sttServerSpinner" style="display:none; vertical-align:middle; margin-left:8px;">
+                            <svg width="18" height="18" viewBox="0 0 50 50">
+                                <circle cx="25" cy="25" r="20" fill="none" stroke="#667eea" stroke-width="5" stroke-linecap="round" stroke-dasharray="31.4 94.2" stroke-dashoffset="0">
+                                    <animateTransform attributeName="transform" type="rotate" from="0 25 25" to="360 25 25" dur="1s" repeatCount="indefinite"/>
+                                </circle>
+                            </svg>
+                        </span>
+                    </span>
+                    <button type="button" id="sttServerControlBtn" class="rust-server-btn">Start STT Server</button>
+                </div>
+                <div id="sttStartupLogBox" style="display:none; margin-top:12px;">
+                    <div style="font-weight:600; font-size:14px; color:#555; margin-bottom:4px;">Server Debug Log</div>
+                    <div id="sttServerLogDiv" class="startup-log-box"></div>
+                </div>
+
+                <div style="margin-top: 16px;">
+                    <label>Choose STT Model:</label>
+                    <div class="backend-selector" id="sttModelSelector">
+                        <div class="backend-option selected" onclick="selectSTTModel('kyutai/stt-1b-en_fr')">
+                            <input type="radio" name="stt-model" value="kyutai/stt-1b-en_fr" id="stt-model-1b" checked>
+                            <label for="stt-model-1b"><span class="backend-label">🇬🇧🇫🇷 English+French (1B)</span></label>
+                        </div>
+                        <div class="backend-option" onclick="selectSTTModel('kyutai/stt-2.6b-en')">
+                            <input type="radio" name="stt-model" value="kyutai/stt-2.6b-en" id="stt-model-2.6b">
+                            <label for="stt-model-2.6b"><span class="backend-label">🇬🇧 English Only (2.6B)</span></label>
+                        </div>
+                    </div>
+                    <div id="sttModelLockNote" class="tooltip-note error-tooltip" style="display:none;">You can't switch models while the server is running. Please stop the server first.</div>
+                </div>
+
+                <div style="margin-top: 8px;">
+                    <label style="display: inline-flex; align-items: center; cursor: pointer; font-size: 14px;">
+                        <input type="checkbox" id="showTimestamps" style="margin-right: 6px;">
+                        Show word timestamps
+                    </label>
+                </div>
+            </div>
+            <div class="form-group" style="padding: 18px 20px 20px 20px; background: #f8f9fa; border: 1px solid #d1d5db; border-radius: 12px; margin-bottom: 18px; box-shadow: 0 2px 8px rgba(80,80,120,0.03);">
+                <label for="audioInput" style="font-weight: bold; font-size: 16px; margin-bottom: 10px; display: block;">Audio Input</label>
+                <div style="display: flex; flex-wrap: wrap; gap: 0; align-items: center; margin-bottom: 10px; justify-content: space-between;">
+                    <div style="flex: 1; min-width: 120px; margin-right: 10px;">
+                        <input type="file" id="audioInput" accept="audio/*" required style="display:none;">
+                        <button type="button" id="customFileBtn" class="custom-file-btn" style="width: 100%;">📁 Choose File</button>
+                    </div>
+                    <div style="flex: 1; min-width: 120px; margin-right: 10px;">
+                        <button type="button" id="recordBtn" class="custom-file-btn" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; width: 100%;">🎤 Record Audio</button>
+                    </div>
+                    <div style="flex: 1; min-width: 140px;">
+                        <button type="button" id="liveTranscribeBtn" class="custom-file-btn" style="background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%); color: white; border: none; width: 100%;">🎙️ Live Transcribe</button>
+                    </div>
+                </div>
+                <div id="audioInputStatus" class="tooltip-note" style="margin-bottom: 10px;">No audio selected or recorded yet. Ready for upload, recording, or live transcription.</div>
+                <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                    <span id="selectedFileName" class="selected-file-name" style="color: #555; font-size: 14px; margin-right: 16px;"></span>
+                    <span id="recordingStatus" style="font-size: 14px; color: #666;"></span>
+                </div>
+                <div id="audioPreview-row" style="width: 100%; display: flex; flex-direction: row;">
+                    <div id="audioPreview" style="flex: 1 1 0%; margin-top: 0; margin-bottom: 10px; padding: 10px; background: #f4f6fa; border-radius: 8px; border: 1px solid #e0e0e0; display: none;"></div>
+                </div>
+            </div>
+
+            <style>
+            .selected-file-name {
+                min-width: 0;
+                white-space: normal;
+                overflow-wrap: anywhere;
+                word-break: break-all;
+                flex: 2;
+            }
+            .backend-selector.disabled {
+                pointer-events: none;
+                opacity: 0.6;
+            }
+            .tooltip-note, .error-tooltip, .mode-info {
+                display: block;
+                width: 100%;
+                background: #f4f6fa;
+                color: #444;
+                font-size: 12px;
+                border-radius: 7px;
+                padding: 8px 12px;
+                margin-top: 6px;
+                margin-bottom: 6px;
+                border-left: 3px solid #667eea;
+            }
+            .error-tooltip {
+                color: #b71c1c;
+                border-left: 3px solid #b71c1c;
+                background: #fff3f3;
+            }
+            </style>
+            <!-- Optional: prompt text/audio fields can go here -->
+            <button type="submit" class="generate-btn" id="transcribeBtn">Transcribe Audio</button>
+            <button type="button" class="generate-btn" id="startLiveTranscribeBtn" style="display: none; background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);">Start Live Transcription</button>
+        </form>
+
+        <!-- Transcription Result Section (for file/recording modes) -->
+        <div id="transcriptionResult" style="margin-top: 24px; padding: 10px; background: #f4f6fa; border-radius: 8px; border: 1px solid #e0e0e0; display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <strong>Transcription Result:</strong>
+                <div style="display: flex; gap: 8px;">
+                    <button type="button" id="clearTranscriptionBtn" style="font-size: 12px; padding: 4px 8px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer;">Clear Result</button>
+                    <button type="button" id="copyTranscriptionBtn" style="font-size: 12px; padding: 4px 8px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">Copy Result</button>
+                    <button type="button" id="saveTranscriptionBtn" style="font-size: 12px; padding: 4px 8px; background: #4caf50; color: white; border: none; border-radius: 4px; cursor: pointer;">💾 Save</button>
+                </div>
+            </div>
+            <div id="transcriptionResultText" style="white-space: pre-wrap; min-height: 120px; max-height: 320px; overflow-y: auto; background: white; padding: 8px; border-radius: 4px; border: 1px solid #ddd; font-family: monospace; font-size: 13px; line-height: 1.4;"></div>
+        </div>
+
+        <!-- Live Transcript Section (moved outside form) -->
+        <div id="liveTranscript" style="margin-top: 24px; padding: 10px; background: #f4f6fa; border-radius: 8px; border: 1px solid #e0e0e0; display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <strong>Live Transcript:</strong>
+                <div style="display: flex; gap: 8px;">
+                    <button type="button" id="clearTranscriptBtn" style="font-size: 12px; padding: 4px 8px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer;">Clear Transcript</button>
+                    <button type="button" id="copyTranscriptBtn" style="font-size: 12px; padding: 4px 8px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">Copy Transcript</button>
+                    <button type="button" id="saveTranscriptBtn" style="font-size: 12px; padding: 4px 8px; background: #4caf50; color: white; border: none; border-radius: 4px; cursor: pointer;">💾 Save</button>
+                </div>
+            </div>
+            <div id="liveTranscriptText" style="white-space: pre-wrap; min-height: 120px; max-height: 320px; overflow-y: auto; background: white; padding: 8px; border-radius: 4px; border: 1px solid #ddd; font-family: monospace; font-size: 13px; line-height: 1.4;"></div>
+        </div>
+
+        <!-- STT Result -->
+        <div class="result" id="sttResult" style="display: none;">
+            <div id="sttResultMessage"></div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Generating speech...</p>
+            <div style="text-align:center; margin-top:8px; color:#333; font-size:15px;">
+                <span id="timer">Elapsed: 0.0s</span>
+            </div>
+        </div>
+        <div class="result" id="result">
+            <div id="resultMessage"></div>
+            <audio id="audioPlayer" class="audio-player" controls style="display: none;">
+                Your browser does not support the audio element.
+            </audio>
+        </div>
+        <div class="debug-section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <strong style="font-size: 16px; color: #333;">Debug Info</strong>
+                <div style="display: flex; gap: 8px;">
+                    <button type="button" id="clearDebugBtn" style="font-size: 12px; padding: 4px 8px; background: #f44336; color: white; border: none; border-radius: 4px; cursor: pointer;">Clear Debug</button>
+                    <button type="button" id="copyDebugBtn" style="font-size: 12px; padding: 4px 8px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer;">Copy Debug</button>
+                    <button type="button" id="saveDebugBtn" style="font-size: 12px; padding: 4px 8px; background: #4caf50; color: white; border: none; border-radius: 4px; cursor: pointer;">💾 Save</button>
+                </div>
+            </div>
+            <div class="debug-info" id="debugInfo" style="display: none;">
+                <div id="debugText"></div>
+            </div>
+        </div>
+        
+        <!-- Credits -->
+        <div style="text-align: center; margin-top: 40px; padding: 20px; border-top: 1px solid #e0e0e0; color: #666; font-size: 14px;">
+            <p>UI by <a href="https://github.com/lazlovision" target="_blank" style="color: #667eea; text-decoration: none;">lazlovision</a></p>
+        </div>
+    </div>
+</body>
+</html>
