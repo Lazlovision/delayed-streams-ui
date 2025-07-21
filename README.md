@@ -1,4 +1,4 @@
-# Delayed Streams Modeling Setup
+# Delayed Streams UI Setup
 
 *A portable web front end for Kyutai's open-source TTS/STT models (unofficial, unsupported, personal project)*
 
