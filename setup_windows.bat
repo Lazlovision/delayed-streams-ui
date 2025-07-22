@@ -110,9 +110,34 @@ goto :eof
     for /f "delims=" %%i in ('wsl wslpath "%~1"') do set "wsl_path=%%i"
 goto :eof
 
+:clone_kyutai_backend
+    echo Cloning Kyutai backend repository...
+    if exist "delayed-streams-modeling" (
+        echo Kyutai backend already exists, updating...
+        cd delayed-streams-modeling
+        git pull origin main
+        if !errorlevel! neq 0 (
+            echo WARNING: Failed to update Kyutai repository, continuing with existing version
+        ) else (
+            echo Kyutai backend updated successfully
+        )
+        cd ..
+    ) else (
+        echo Downloading Kyutai backend...
+        git clone https://github.com/kyutai-labs/delayed-streams-modeling.git
+        if !errorlevel! neq 0 (
+            echo ERROR: Failed to clone Kyutai repository
+            set "clone_result=false"
+            goto :eof
+        )
+        echo Kyutai backend cloned successfully
+    )
+    set "clone_result=true"
+goto :eof
+
 :main
 REM === Step 1: Check Prerequisites ===
-echo [1/8] Checking prerequisites...
+echo [1/9] Checking prerequisites...
 
 REM Check Git
 echo Checking Git installation...
@@ -162,8 +187,18 @@ if not exist "ui\run.py" (
 )
 echo Project structure: OK
 
-REM === Step 2: WSL Setup ===
-echo [2/8] Setting up WSL...
+REM === Step 2: Clone Kyutai Backend ===
+echo [2/9] Setting up Kyutai backend...
+call :clone_kyutai_backend
+if "!clone_result!"=="false" (
+    echo Kyutai backend setup failed
+    pause
+    exit /b 1
+)
+echo Kyutai backend: OK
+
+REM === Step 3: WSL Setup ===
+echo [3/9] Setting up WSL...
 call :setup_wsl
 if "!wsl_result!"=="false" (
     echo WSL setup failed
@@ -175,8 +210,8 @@ if "!wsl_result!"=="false" (
 )
 echo WSL: OK
 
-REM === Step 3: Path Conversion ===
-echo [3/8] Converting paths for WSL...
+REM === Step 4: Path Conversion ===
+echo [4/9] Converting paths for WSL...
 call :convert_to_wsl_path "%CD%"
 echo Windows path: %CD%
 echo WSL path: !wsl_path!
@@ -190,8 +225,8 @@ if !errorlevel! neq 0 (
 )
 echo Path conversion: OK
 
-REM === Step 4: Windows Environment ===
-echo [4/8] Setting up Windows environment...
+REM === Step 5: Windows Environment ===
+echo [5/9] Setting up Windows environment...
 if exist %WINDOWS_VENV% (
     echo Windows environment exists, updating...
     call %WINDOWS_VENV%\Scripts\activate
@@ -217,8 +252,8 @@ if !errorlevel! neq 0 (
 )
 echo Windows environment: OK
 
-REM === Step 5: WSL System Packages ===
-echo [5/8] Installing WSL system packages...
+REM === Step 6: WSL System Packages ===
+echo [6/9] Installing WSL system packages...
 wsl bash -c "command -v python3 && command -v pip3 && command -v gcc" >nul 2>&1
 if !errorlevel! neq 0 (
     echo Installing development tools in WSL...
@@ -231,8 +266,8 @@ if !errorlevel! neq 0 (
 )
 echo WSL system packages: OK
 
-REM === Step 6: WSL Python Environment ===
-echo [6/8] Setting up WSL Python environment...
+REM === Step 7: WSL Python Environment ===
+echo [7/9] Setting up WSL Python environment...
 if exist %WSL_VENV% (
     echo WSL environment exists, updating...
     wsl bash -c "cd '!wsl_path!' && source %WSL_VENV%/bin/activate && pip install --upgrade pip" >nul 2>&1
@@ -285,8 +320,8 @@ if !errorlevel! neq 0 (
 )
 echo WSL environment: OK
 
-REM === Step 7: Create Launch Scripts ===
-echo [7/8] Creating launch scripts...
+REM === Step 8: Create Launch Scripts ===
+echo [8/9] Creating launch scripts...
 
 echo @echo off > start-ui.bat
 echo echo Starting Delayed Streams UI... >> start-ui.bat
@@ -304,8 +339,8 @@ echo pause >> start-backend.bat
 
 echo Launch scripts: OK
 
-REM === Step 8: Final Testing ===
-echo [8/8] Testing installation...
+REM === Step 9: Final Testing ===
+echo [9/9] Testing installation...
 
 call %WINDOWS_VENV%\Scripts\activate
 python -c "import flask; print('UI test passed')" >nul 2>&1
@@ -322,10 +357,21 @@ if !errorlevel! neq 0 (
     echo Backend test: OK
 )
 
+REM Test if Kyutai backend directory exists
+if exist "delayed-streams-modeling" (
+    echo Kyutai backend directory: OK
+) else (
+    echo WARNING: Kyutai backend directory not found
+)
+
 echo.
 echo ================================
 echo Installation Complete!
 echo ================================
+echo.
+echo Repository structure:
+echo   delayed-streams-ui/          (your UI frontend)
+echo   delayed-streams-modeling/    (Kyutai's official backend)
 echo.
 echo To start the application:
 echo   1. Run start-backend.bat (starts WSL backend)
