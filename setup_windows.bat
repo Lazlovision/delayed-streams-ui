@@ -95,11 +95,20 @@ goto :eof
         goto :eof
     )
     
-    REM Test WSL functionality
+    REM Test WSL functionality - give it time to initialize
+    echo Testing WSL functionality...
+    timeout /t 2 >nul
     wsl echo "test" >nul 2>&1
     if !errorlevel! neq 0 (
-        echo ERROR: WSL is not working properly
-        set "wsl_result=false"
+        echo WSL appears to be installed but not fully initialized.
+        echo This often happens after a fresh WSL installation.
+        echo.
+        echo Please try one of the following:
+        echo   1. Restart your computer and run this script again
+        echo   2. Or run 'wsl --shutdown' then 'wsl' in a new command prompt
+        echo   3. Then run this script again
+        echo.
+        set "wsl_result=restart"
         goto :eof
     )
     
@@ -323,18 +332,64 @@ echo WSL environment: OK
 REM === Step 8: Create Launch Scripts ===
 echo [8/9] Creating launch scripts...
 
+REM Create start-ui.bat with proper error handling and path resolution
 echo @echo off > start-ui.bat
+echo setlocal >> start-ui.bat
 echo echo Starting Delayed Streams UI... >> start-ui.bat
-echo call %WINDOWS_VENV%\Scripts\activate >> start-ui.bat
+echo. >> start-ui.bat
+echo REM Check if virtual environment exists >> start-ui.bat
+echo if not exist "%WINDOWS_VENV%\Scripts\activate.bat" ( >> start-ui.bat
+echo     echo ERROR: Windows virtual environment not found >> start-ui.bat
+echo     echo Please run setup_windows.bat first >> start-ui.bat
+echo     pause >> start-ui.bat
+echo     exit /b 1 >> start-ui.bat
+echo ^) >> start-ui.bat
+echo. >> start-ui.bat
+echo REM Activate virtual environment >> start-ui.bat
+echo call "%WINDOWS_VENV%\Scripts\activate.bat" >> start-ui.bat
+echo if %%errorlevel%% neq 0 ( >> start-ui.bat
+echo     echo ERROR: Failed to activate virtual environment >> start-ui.bat
+echo     pause >> start-ui.bat
+echo     exit /b 1 >> start-ui.bat
+echo ^) >> start-ui.bat
+echo. >> start-ui.bat
+echo REM Check if ui directory exists >> start-ui.bat
+echo if not exist "ui\run.py" ( >> start-ui.bat
+echo     echo ERROR: ui\run.py not found >> start-ui.bat
+echo     echo Please run this from the delayed-streams-ui directory >> start-ui.bat
+echo     pause >> start-ui.bat
+echo     exit /b 1 >> start-ui.bat
+echo ^) >> start-ui.bat
+echo. >> start-ui.bat
+echo REM Change to ui directory and start >> start-ui.bat
 echo cd ui >> start-ui.bat
 echo set UI_SERVER_PORT=5000 >> start-ui.bat
 echo set DEBUG_MODE=false >> start-ui.bat
+echo echo Virtual environment activated successfully >> start-ui.bat
+echo echo Starting Flask application... >> start-ui.bat
 echo python run.py >> start-ui.bat
+echo if %%errorlevel%% neq 0 ( >> start-ui.bat
+echo     echo ERROR: Failed to start UI server >> start-ui.bat
+echo ^) >> start-ui.bat
 echo pause >> start-ui.bat
 
 echo @echo off > start-backend.bat
+echo setlocal >> start-backend.bat
 echo echo Starting WSL backend... >> start-backend.bat
+echo. >> start-backend.bat
+echo REM Check WSL availability >> start-backend.bat
+echo wsl --version ^>nul 2^>^&1 >> start-backend.bat
+echo if %%errorlevel%% neq 0 ( >> start-backend.bat
+echo     echo ERROR: WSL is not available >> start-backend.bat
+echo     echo Please install WSL and run setup_windows.bat >> start-backend.bat
+echo     pause >> start-backend.bat
+echo     exit /b 1 >> start-backend.bat
+echo ^) >> start-backend.bat
+echo. >> start-backend.bat
 echo wsl bash -c "cd '!wsl_path!' && source %WSL_VENV%/bin/activate && python backend_server.py" >> start-backend.bat
+echo if %%errorlevel%% neq 0 ( >> start-backend.bat
+echo     echo ERROR: Backend failed to start >> start-backend.bat
+echo ^) >> start-backend.bat
 echo pause >> start-backend.bat
 
 echo Launch scripts: OK
@@ -342,19 +397,32 @@ echo Launch scripts: OK
 REM === Step 9: Final Testing ===
 echo [9/9] Testing installation...
 
-call %WINDOWS_VENV%\Scripts\activate
-python -c "import flask; print('UI test passed')" >nul 2>&1
-if !errorlevel! neq 0 (
-    echo WARNING: UI test failed
+REM Test Windows environment with full path
+if exist "%WINDOWS_VENV%\Scripts\activate.bat" (
+    call "%WINDOWS_VENV%\Scripts\activate.bat"
+    python -c "import flask, flask_socketio; print('UI dependencies test passed')" >nul 2>&1
+    if !errorlevel! neq 0 (
+        echo WARNING: UI dependencies test failed - some packages may be missing
+        echo Attempting to reinstall UI dependencies...
+        pip install flask flask-cors flask-socketio requests psutil numpy websockets msgpack
+    ) else (
+        echo UI test: OK
+    )
 ) else (
-    echo UI test: OK
+    echo WARNING: Windows virtual environment not found
 )
 
-wsl bash -c "cd '!wsl_path!' && source %WSL_VENV%/bin/activate && python -c 'import torch; print(\"Backend test passed\")'" >nul 2>&1
-if !errorlevel! neq 0 (
-    echo WARNING: Backend test failed
+REM Test WSL environment only if WSL is working
+wsl echo "test" >nul 2>&1
+if !errorlevel! equ 0 (
+    wsl bash -c "cd '!wsl_path!' && source %WSL_VENV%/bin/activate && python -c 'import torch; print(\"Backend test passed\")'" >nul 2>&1
+    if !errorlevel! neq 0 (
+        echo WARNING: Backend test failed
+    ) else (
+        echo Backend test: OK
+    )
 ) else (
-    echo Backend test: OK
+    echo WARNING: WSL not available for backend testing
 )
 
 REM Test if Kyutai backend directory exists
